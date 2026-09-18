@@ -1,0 +1,152 @@
+// Shorts Factory database schema.
+// Single-user application: there is intentionally no User / tenant model.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum ProjectStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum VideoStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobType {
+  RESEARCH
+  SCRIPT
+  SCENES
+  ASSETS
+  VOICE
+  SUBTITLES
+  RENDER
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  title     String
+  topic     String
+  status    ProjectStatus @default(DRAFT)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  videos Video[]
+  jobs   Job[]
+}
+
+model Video {
+  id          String      @id @default(cuid())
+  projectId   String
+  version     Int         @default(1)
+  status      VideoStatus @default(DRAFT)
+  /// Validated script JSON (schema defined later in lib/ai/schemas).
+  scriptJson  String?
+  title       String?
+  description String?
+  /// Duration in seconds.
+  duration    Float?
+  outputPath  String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scenes  Scene[]
+  jobs    Job[]
+
+  @@unique([projectId, version])
+}
+
+model Scene {
+  id           String   @id @default(cuid())
+  videoId      String
+  /// Zero-based order of the scene within the video.
+  index        Int
+  text         String
+  /// Duration in seconds.
+  duration     Float?
+  visualPrompt String?
+  visualType   String?
+  /// Start / end offsets in seconds.
+  startTime    Float?
+  endTime      Float?
+  /// The asset selected for this scene (one of `assets`).
+  assetId      String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  video         Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  selectedAsset Asset?  @relation("SelectedAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  assets        Asset[] @relation("SceneAssets")
+
+  @@unique([videoId, index])
+}
+
+model Asset {
+  id           String   @id @default(cuid())
+  sceneId      String?
+  /// e.g. video, image, audio.
+  type         String
+  /// e.g. pexels, local, tts provider name.
+  provider     String
+  externalId   String?
+  url          String?
+  localPath    String?
+  width        Int?
+  height       Int?
+  /// Duration in seconds (video/audio assets).
+  duration     Float?
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  scene      Scene? @relation("SceneAssets", fields: [sceneId], references: [id], onDelete: SetNull)
+  selectedBy Scene? @relation("SelectedAsset")
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  projectId   String
+  videoId     String?
+  type        JobType
+  status      JobStatus @default(PENDING)
+  payloadJson String?
+  resultJson  String?
+  attempts    Int       @default(0)
+  error       String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  video   Video?  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

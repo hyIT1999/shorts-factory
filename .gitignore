@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+frontend/dist/
+frontend/.angular/
+
+# Environment (real credentials live only in .env)
+.env
+.env.*
+!.env.example
+
+# SQLite database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Generated Prisma client
+lib/generated/
+
+# Generated media and working data (keep folder structure only)
+data/**
+!data/*/
+!data/**/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
