@@ -1,0 +1,44 @@
+# Backend + frontend checks on Linux, including the RENDER test against a real FFmpeg
+# (tests/render-ffmpeg.test.ts, which is skipped where ffmpeg is missing).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install FFmpeg (libx264 + libass) and a fallback font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          ffmpeg -version | head -1
+          ffmpeg -hide_banner -encoders | grep -E ' (libx264|aac) '
+          ffmpeg -hide_banner -filters | grep -E ' ass '
+
+      - name: Minimal .env (tests use their own database; the Prisma CLI needs DATABASE_URL)
+        run: echo 'DATABASE_URL="file:./data/ci.db"' > .env
+
+      - name: Install (runs prisma generate and the frontend install)
+        run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+
+      - name: Backend tests (job engine, providers, real FFmpeg render, worker processes)
+        run: npm test
+
+      - name: Frontend unit tests
+        run: npx ng test --watch=false
+        working-directory: frontend

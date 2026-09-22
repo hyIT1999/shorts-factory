@@ -1,0 +1,220 @@
+<a routerLink="/projects" class="back">← Projects</a>
+
+@if (loadError(); as message) {
+  <p class="alert" role="alert">{{ message }}</p>
+}
+
+@if (project(); as p) {
+  <header class="page-header header-row">
+    <div>
+      <h1>{{ p.title }}</h1>
+      <p>{{ p.topic }}</p>
+    </div>
+    <button
+      type="button"
+      class="btn btn-primary"
+      [disabled]="isActive() || starting()"
+      (click)="generate()"
+    >
+      {{ isActive() ? 'Generating…' : starting() ? 'Starting…' : 'Generate' }}
+    </button>
+  </header>
+
+  @if (actionError(); as message) {
+    <p class="alert" role="alert">{{ message }}</p>
+  }
+
+  <div class="layout">
+    @if (outputUrl(); as url) {
+      <div class="video-frame video-frame-ready">
+        <video class="player" controls preload="metadata" [src]="url"></video>
+      </div>
+    } @else {
+      <div class="video-frame">
+        <span>Video preview</span>
+        <small>9:16 · {{ latestVideo()?.status === 'COMPLETED' ? 'no rendered file' : 'not rendered yet' }}</small>
+      </div>
+    }
+
+    <div class="side">
+      <section class="card">
+        <h2>Actions</h2>
+        @if (isActive()) {
+          <button type="button" class="btn btn-danger" [disabled]="busy() || !activeJob()" (click)="abort()">
+            {{ busy() ? 'Aborting…' : 'Abort ' + (activeJob()?.type ?? 'job') }}
+          </button>
+          <p class="hint">Stops the pipeline; the stage can be re-run afterwards.</p>
+        } @else if (canRerun()) {
+          <div class="actions">
+            @if (downloadUrl(); as url) {
+              <a class="btn btn-primary" [href]="url" download>Download MP4</a>
+            }
+            @for (stage of rerunStages; track stage) {
+              <button type="button" class="btn" [disabled]="busy()" (click)="rerun(stage)">Re-run {{ stage }}</button>
+            }
+          </div>
+          <p class="hint">Re-runs reuse everything before the stage (no script/scene AI call; VOICE reuses cached narration).</p>
+        } @else {
+          <p class="hint">Generate the project first.</p>
+        }
+      </section>
+
+      <section class="card">
+        <h2>Status</h2>
+        <dl>
+          <dt>Project</dt>
+          <dd><span class="status status-{{ p.status.toLowerCase() }}">{{ p.status }}</span></dd>
+          <dt>Video</dt>
+          <dd>
+            @if (latestVideo(); as video) {
+              <span class="status status-{{ video.status.toLowerCase() }}">{{ video.status }}</span>
+              <span class="hint"> v{{ video.version }}</span>
+            } @else {
+              <span class="hint">Not generated yet</span>
+            }
+          </dd>
+          @if (latestVideo()?.duration; as duration) {
+            <dt>Duration</dt>
+            <dd>{{ duration | number: '1.0-1' }}s</dd>
+          }
+          <dt>Created</dt>
+          <dd>{{ p.createdAt | date: 'medium' }}</dd>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Pipeline</h2>
+        <ol class="pipeline">
+          @for (stage of stages(); track stage.type) {
+            <li class="stage stage-{{ stage.status.toLowerCase() }}">
+              <span class="stage-icon" aria-hidden="true">{{ stage.icon }}</span>
+              <span class="stage-name">{{ stage.type }}</span>
+              <span class="stage-status">{{ stage.status === 'NOT_STARTED' ? '—' : stage.status }}</span>
+            </li>
+          }
+        </ol>
+      </section>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Jobs</h2>
+    @if (p.jobs.length === 0) {
+      <p class="hint">No jobs yet. Click Generate to start the pipeline.</p>
+    } @else {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Attempts</th>
+              <th>Created</th>
+              <th>Started</th>
+              <th>Completed</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (job of p.jobs; track job.id) {
+              <tr>
+                <td>{{ job.type }}</td>
+                <td><span class="status status-{{ job.status.toLowerCase() }}">{{ job.status }}</span></td>
+                <td>{{ job.attempts }}</td>
+                <td>{{ job.createdAt | date: 'HH:mm:ss' }}</td>
+                <td>{{ job.startedAt ? (job.startedAt | date: 'HH:mm:ss') : '—' }}</td>
+                <td>{{ job.completedAt ? (job.completedAt | date: 'HH:mm:ss') : '—' }}</td>
+                <td class="error-cell">{{ job.error ?? '' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+
+  @if (latestVideo(); as video) {
+    @if (video.research; as research) {
+      <details class="card result">
+        <summary><h2>Research</h2></summary>
+        <p>{{ research.summary }}</p>
+        <ul class="facts">
+          @for (fact of research.facts; track $index) {
+            <li>
+              <span class="status status-{{ fact.confidence === 'established' ? 'completed' : 'queued' }}">
+                {{ fact.confidence }}
+              </span>
+              <strong>{{ fact.claim }}</strong>
+              <span class="hint">{{ fact.explanation }}</span>
+            </li>
+          }
+        </ul>
+        <h3>Sources</h3>
+        @if (research.sources.length > 0) {
+          <ul>
+            @for (source of research.sources; track source.url) {
+              <li><a [href]="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a></li>
+            }
+          </ul>
+        } @else {
+          <p class="hint">No verified sources — research is AI-only (no web search yet).</p>
+        }
+      </details>
+    }
+
+    @if (video.script; as script) {
+      <details class="card result">
+        <summary><h2>Script</h2></summary>
+        <dl>
+          <dt>Title</dt>
+          <dd>{{ script.title }}</dd>
+          <dt>Hook</dt>
+          <dd>{{ script.hook }}</dd>
+          <dt>Narration</dt>
+          <dd class="narration">{{ script.narration }}</dd>
+          <dt>CTA</dt>
+          <dd>{{ script.cta }}</dd>
+          <dt>Target</dt>
+          <dd>{{ script.targetDuration }}s · {{ script.language }}</dd>
+        </dl>
+      </details>
+    }
+
+    @if (video.scenes.length > 0) {
+      <details class="card result" open>
+        <summary><h2>Scenes ({{ video.scenes.length }})</h2></summary>
+        <ol class="scenes">
+          @for (scene of video.scenes; track scene.id) {
+            <li>
+              <span class="hint">{{ scene.startTime }}s – {{ scene.endTime }}s · {{ scene.visualType }}</span>
+              <span>{{ scene.text }}</span>
+              <span class="hint">{{ scene.visualPrompt }}</span>
+              @if (scene.visual) {
+                <span class="hint">
+                  Image: {{ scene.visual.provider }}@if (scene.visual.fallback) { (placeholder fallback)}
+                  @if (scene.visual.credit) {
+                    ·
+                    @if (scene.visual.creditUrl) {
+                      <a [href]="scene.visual.creditUrl" target="_blank" rel="noopener noreferrer">{{ scene.visual.credit }}</a>
+                    } @else {
+                      {{ scene.visual.credit }}
+                    }
+                  }
+                </span>
+              }
+              @if (scene.subtitleEmphasis.length > 0) {
+                <span class="emphasis">
+                  @for (word of scene.subtitleEmphasis; track $index) {
+                    <span class="badge">{{ word }}</span>
+                  }
+                </span>
+              }
+            </li>
+          }
+        </ol>
+      </details>
+    }
+  }
+} @else if (!loadError()) {
+  <p class="hint">Loading…</p>
+}

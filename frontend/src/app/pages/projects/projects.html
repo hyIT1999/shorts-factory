@@ -1,0 +1,36 @@
+<header class="page-header header-row">
+  <div>
+    <h1>Projects</h1>
+    <p>Every short you create appears here.</p>
+  </div>
+  <a routerLink="/create" class="btn btn-primary">New Short</a>
+</header>
+
+@if (error(); as message) {
+  <p class="alert" role="alert">{{ message }}</p>
+}
+
+@if (loading() && projects().length === 0) {
+  <p class="hint">Loading…</p>
+} @else if (projects().length === 0) {
+  <div class="card empty">
+    <div class="empty-icon">▢</div>
+    <h2>No projects yet</h2>
+    <p>Create your first short to get started.</p>
+    <a routerLink="/create" class="btn btn-primary">Create Short</a>
+  </div>
+} @else {
+  <ul class="project-list">
+    @for (project of projects(); track project.id) {
+      <li class="card project-row">
+        <a class="project-link" [routerLink]="['/projects', project.id]">
+          <span class="project-title">{{ project.title }}</span>
+          <span class="project-topic">{{ project.topic }}</span>
+        </a>
+        <span class="status status-{{ project.status.toLowerCase() }}">{{ project.status }}</span>
+        <span class="hint">{{ project.createdAt | date: 'medium' }}</span>
+        <button type="button" class="btn btn-danger" (click)="remove(project)">Delete</button>
+      </li>
+    }
+  </ul>
+}

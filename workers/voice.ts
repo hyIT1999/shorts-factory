@@ -1,7 +1,11 @@
 /**
- * Voice worker (NOT IMPLEMENTED — STEP 1 placeholder).
- *
- * TODO: Generate narration audio per scene with lib/providers/tts,
- * store files in data/audio and update scene durations/timings.
+ * VOICE stage: one narration WAV per scene via the configured VoiceProvider
+ * (Gemini TTS by default), then scene timings and Video.duration are rebuilt
+ * from the real audio. See lib/voice/service.ts.
  */
-export {};
+import type { JobHandler } from '../lib/jobs/types.js';
+import { synthesizeVideoVoice } from '../lib/voice/service.js';
+import type { VoiceJobResult } from '../lib/voice/types.js';
+
+export const voiceHandler: JobHandler = async (_job, payload, { voice }): Promise<VoiceJobResult> =>
+  synthesizeVideoVoice({ projectId: payload.projectId, videoId: payload.videoId }, voice);

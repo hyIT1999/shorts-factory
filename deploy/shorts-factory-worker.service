@@ -1,0 +1,26 @@
+[Unit]
+Description=Shorts Factory worker (pipeline jobs, ffmpeg)
+After=network.target
+
+[Service]
+Type=simple
+User=shorts
+Group=shorts
+WorkingDirectory=/opt/shorts-factory
+EnvironmentFile=/opt/shorts-factory/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/workers/worker.js
+Restart=always
+RestartSec=5
+# On stop the worker kills its ffmpeg, puts the running job back to PENDING and exits
+# (WORKER_STOP_TIMEOUT_MS, default 30 s). Give it that time before systemd kills the group.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/shorts-factory /opt/shorts-factory/data
+
+[Install]
+WantedBy=multi-user.target

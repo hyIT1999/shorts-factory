@@ -1,0 +1,12 @@
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}

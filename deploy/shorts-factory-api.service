@@ -1,0 +1,22 @@
+[Unit]
+Description=Shorts Factory API
+After=network.target
+
+[Service]
+Type=simple
+User=shorts
+Group=shorts
+WorkingDirectory=/opt/shorts-factory
+EnvironmentFile=/opt/shorts-factory/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/server/index.js
+Restart=always
+RestartSec=5
+# The API listens on HOST from .env (127.0.0.1); nginx terminates TLS and authenticates in front of it.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/shorts-factory /opt/shorts-factory/data
+
+[Install]
+WantedBy=multi-user.target

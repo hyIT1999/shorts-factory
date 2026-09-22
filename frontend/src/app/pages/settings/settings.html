@@ -1,0 +1,53 @@
+<header class="page-header">
+  <h1>Settings</h1>
+  <p>Channel DNA — defaults the AI uses for every new short.</p>
+</header>
+
+@if (message(); as msg) {
+  <p [class]="msg.kind === 'ok' ? 'notice' : 'alert'" role="status">{{ msg.text }}</p>
+}
+
+@if (dna(); as values) {
+  <form class="card settings-form" (submit)="save($event)">
+    <div class="grid">
+      @for (field of fields; track field.key) {
+        <div class="field">
+          <label [for]="field.key">{{ field.label }}</label>
+          <input
+            [id]="field.key"
+            type="text"
+            maxlength="100"
+            [placeholder]="field.placeholder"
+            [value]="values[field.key]"
+            (input)="onInput(field.key, $event)"
+          />
+        </div>
+      }
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary" [disabled]="saving()">
+        {{ saving() ? 'Saving…' : 'Save settings' }}
+      </button>
+    </div>
+  </form>
+} @else if (!message()) {
+  <p class="hint">Loading…</p>
+}
+
+<form class="card settings-form token-form" (submit)="saveToken($event)">
+  <h2>API token</h2>
+  <p class="hint">
+    Only needed when the server runs with <code>API_TOKEN</code> (for example on a VPS). Stored in this browser and
+    sent with every request to the API; the server never sees it in the Channel DNA.
+  </p>
+  @if (tokenMessage(); as text) {
+    <p class="notice" role="status">{{ text }}</p>
+  }
+  <div class="field">
+    <label for="apiToken">Token</label>
+    <input id="apiToken" type="password" autocomplete="off" [value]="apiToken()" (input)="onTokenInput($event)" />
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn">{{ apiToken() ? 'Save token' : 'Clear token' }}</button>
+  </div>
+</form>

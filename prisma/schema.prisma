@@ -34,6 +34,13 @@ enum JobStatus {
   CANCELLED
 }
 
+enum AssetStatus {
+  DISCOVERED
+  DOWNLOADING
+  READY
+  FAILED
+}
+
 enum JobType {
   RESEARCH
   SCRIPT
@@ -74,37 +81,43 @@ model Video {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scenes  Scene[]
   jobs    Job[]
+  assets  Asset[]
 
   @@unique([projectId, version])
 }
 
 model Scene {
-  id           String   @id @default(cuid())
-  videoId      String
+  id                   String   @id @default(cuid())
+  videoId              String
   /// Zero-based order of the scene within the video.
-  index        Int
-  text         String
+  index                Int
+  text                 String
   /// Duration in seconds.
-  duration     Float?
-  visualPrompt String?
-  visualType   String?
+  duration             Float?
+  visualPrompt         String?
+  visualType           String?
   /// Start / end offsets in seconds.
-  startTime    Float?
-  endTime      Float?
+  startTime            Float?
+  endTime              Float?
+  /// JSON array of words/phrases to highlight in subtitles.
+  subtitleEmphasisJson String?
   /// The asset selected for this scene (one of `assets`).
-  assetId      String?  @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  assetId              String?  @unique
+  /// Narration audio for this scene (Asset with type "audio").
+  voiceAssetId         String?  @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   video         Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
   selectedAsset Asset?  @relation("SelectedAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  voiceAsset    Asset?  @relation("SceneVoice", fields: [voiceAssetId], references: [id], onDelete: SetNull)
   assets        Asset[] @relation("SceneAssets")
 
   @@unique([videoId, index])
 }
 
 model Asset {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   sceneId      String?
   /// e.g. video, image, audio.
   type         String
@@ -118,10 +131,21 @@ model Asset {
   /// Duration in seconds (video/audio assets).
   duration     Float?
   metadataJson String?
-  createdAt    DateTime @default(now())
+  /// Lifecycle: DISCOVERED (candidate) → DOWNLOADING → READY | FAILED.
+  status       AssetStatus @default(DISCOVERED)
+  mimeType     String?
+  sizeBytes    Int?
+  /// Owning video (for per-video queries and cleanup).
+  videoId      String?
+  createdAt    DateTime    @default(now())
 
   scene      Scene? @relation("SceneAssets", fields: [sceneId], references: [id], onDelete: SetNull)
   selectedBy Scene? @relation("SelectedAsset")
+  voiceFor   Scene? @relation("SceneVoice")
+  video      Video? @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+  @@index([sceneId])
 }
 
 model Job {
@@ -134,6 +158,10 @@ model Job {
   resultJson  String?
   attempts    Int       @default(0)
   error       String?
+  /// Worker process that claimed the job (lib/jobs/heartbeat.ts); null once released.
+  workerId    String?
+  /// Last liveness signal of that worker while RUNNING; a stale one means the worker died.
+  heartbeatAt DateTime?
   createdAt   DateTime  @default(now())
   startedAt   DateTime?
   completedAt DateTime?
@@ -141,7 +169,12 @@ model Job {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   video   Video?  @relation(fields: [videoId], references: [id], onDelete: Cascade)
 
+  /// Claiming: the oldest PENDING job.
   @@index([status, createdAt])
+  /// Latest completed result of a stage for a video (results.ts, re-run prerequisites).
+  @@index([videoId, type, status, completedAt])
+  /// A project's job history (project detail).
+  @@index([projectId, createdAt])
 }
 
 model Setting {

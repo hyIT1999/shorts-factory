@@ -12,24 +12,31 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:frontend": "npm start --prefix frontend",
     "build": "npm run build:server && npm run build:frontend",
-    "build:server": "tsc -p tsconfig.json",
+    "build:server": "tsc -p tsconfig.build.json",
     "build:frontend": "npm run build --prefix frontend",
     "start": "node dist/server/index.js",
     "worker": "tsx workers/worker.ts",
+    "start:worker": "node dist/workers/worker.js",
     "lint": "eslint . && npm run lint --prefix frontend",
     "lint:server": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate && npm install --prefix frontend"
+    "postinstall": "prisma generate && npm install --prefix frontend",
+    "data:check": "tsx scripts/data-maintenance.ts check",
+    "data:sweep": "tsx scripts/data-maintenance.ts sweep",
+    "data:sweep:apply": "tsx scripts/data-maintenance.ts sweep --apply",
+    "trial:render": "tsx scripts/render-trial.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "7.10.0",
     "@prisma/client": "7.10.0",
     "dotenv": "^18.0.0",
     "express": "^5.2.1",
+    "openai": "^7.18.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

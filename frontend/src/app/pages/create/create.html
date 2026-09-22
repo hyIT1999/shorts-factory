@@ -1,0 +1,43 @@
+<header class="page-header">
+  <h1>Create a Short</h1>
+  <p>Give the short a title and a topic. Generation starts from the project page.</p>
+</header>
+
+<form class="card create-form" (submit)="createShort($event)">
+  <div class="field">
+    <label for="title">Title</label>
+    <input
+      id="title"
+      type="text"
+      placeholder="Why Do We Dream?"
+      [maxLength]="maxTitle"
+      [value]="title()"
+      (input)="onInput('title', $event)"
+    />
+  </div>
+  <div class="field">
+    <label for="topic">Topic</label>
+    <textarea
+      id="topic"
+      rows="4"
+      placeholder="Why do humans dream?"
+      [maxLength]="maxTopic"
+      [value]="topic()"
+      (input)="onInput('topic', $event)"
+    ></textarea>
+  </div>
+
+  @if (error(); as message) {
+    <p class="alert" role="alert">{{ message }}</p>
+  }
+
+  <div class="form-actions">
+    <button
+      type="submit"
+      class="btn btn-primary"
+      [disabled]="submitting() || !title().trim() || !topic().trim()"
+    >
+      {{ submitting() ? 'Creating…' : 'Create Short' }}
+    </button>
+  </div>
+</form>

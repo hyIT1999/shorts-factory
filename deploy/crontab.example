@@ -1,0 +1,11 @@
+# Shorts Factory cron jobs (install with `crontab -e` as the app user, e.g. "shorts").
+# Logs go to /var/log/shorts-factory (create it and give the app user write access).
+
+# Nightly: consistent database copy + narration audio mirror (deploy/backup.sh).
+30 2 * * * /opt/shorts-factory/deploy/backup.sh >> /var/log/shorts-factory/backup.log 2>&1
+
+# Weekly: remove orphan directories, abandoned render tmp dirs and old video versions (DATA_RETENTION_DAYS).
+0 3 * * 0 cd /opt/shorts-factory && /usr/bin/node dist/scripts/data-maintenance.js sweep --apply >> /var/log/shorts-factory/sweep.log 2>&1
+
+# Daily: database <-> files consistency report (non-zero exit when something is wrong).
+0 4 * * * cd /opt/shorts-factory && /usr/bin/node dist/scripts/data-maintenance.js check >> /var/log/shorts-factory/check.log 2>&1
