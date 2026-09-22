@@ -166,9 +166,16 @@ async function tryPrimary(
   }
 
   let last: NoAsset | undefined;
-  for (const { row, candidate, metadata } of rows) {
+  for (const [tried, { row, candidate, metadata }] of rows.entries()) {
     try {
-      return { asset: await storeCandidate(services.provider, services, candidate, row.id, fileBase, metadata) };
+      const asset = await storeCandidate(services.provider, services, candidate, row.id, fileBase, metadata);
+      // The candidates after this one were never tried: drop their rows so they are not
+      // mistaken for stuck downloads (failed ones stay, with their error, for diagnosis).
+      const untried = rows.slice(tried + 1).map((r) => r.row.id);
+      if (untried.length > 0) {
+        await prisma.asset.deleteMany({ where: { id: { in: untried }, status: AssetStatus.DISCOVERED } });
+      }
+      return { asset };
     } catch (error) {
       if (error instanceof AssetError && error.code === 'CONFIG') {
         throw error; // misconfiguration (e.g. no ffmpeg): no candidate can do better

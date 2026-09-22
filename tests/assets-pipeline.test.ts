@@ -183,9 +183,9 @@ describe('ASSETS stage (mock provider, selection and fallback)', () => {
     assert.equal(provider.searches[0]?.text, 'person sleeping night moonlight');
 
     const all = await prisma.asset.findMany({ where: { videoId: gen.videoId } });
-    assert.equal(all.length, SCENES * 2, 'both candidates are recorded');
+    assert.equal(all.length, SCENES, 'the untried candidate of every scene is removed once one is stored');
     assert.equal(all.filter((a) => a.status === 'READY').length, SCENES);
-    assert.equal(all.filter((a) => a.status === 'DISCOVERED').length, SCENES);
+    assert.equal(all.filter((a) => a.status === 'DISCOVERED').length, 0, 'nothing is left DISCOVERED');
 
     for (const scene of await sceneAssets(gen.videoId)) {
       assert.equal(scene.selectedAsset?.externalId, `mock-${scene.index}-portrait`);
