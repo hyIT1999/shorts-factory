@@ -677,23 +677,24 @@ describe('re-run API (RENDER / SUBTITLES without AI or TTS)', () => {
     assert.deepEqual([voiceAgain.status, voiceAgain.body.stage], [202, 'VOICE']);
   });
 
-  test('VOICE failed on a rate limit → re-run VOICE re-uses the cached scenes and finishes the pipeline', async () => {
+  test('VOICE failed on a rate limit → re-run VOICE makes the one narration request again and finishes the pipeline', async () => {
     let limited = true;
     const { ctx } = context({
-      fail: (r) => (limited && r.sceneIndex === 2 ? new VoiceError('VOICE_RATE_LIMIT', 'Gemini TTS rate limit or quota exceeded (HTTP 429)') : undefined),
+      fail: () => (limited ? new VoiceError('VOICE_RATE_LIMIT', 'Gemini TTS rate limit or quota exceeded (HTTP 429)') : undefined),
     });
     const gen = await createProjectWithGeneration('Tại sao con người lại mơ?', 'Tại sao con người lại mơ?');
     await runUntil(ctx);
     const prisma = getPrisma();
     assert.equal((await prisma.job.findFirstOrThrow({ where: { type: JobType.VOICE } })).status, JobStatus.FAILED);
     const calls = (ctx.voice.provider as MockVoiceProvider).calls;
-    assert.equal(calls.length, 3, 'scenes 1-2 synthesized, scene 3 rate limited');
+    assert.equal(calls.length, 1, 'one narration request, rate limited');
+    assert.equal(calls[0]?.paragraphs?.length, 7, 'the whole narration in one request');
 
     limited = false;
     const res = await rerun(gen.videoId, 'VOICE');
     assert.deepEqual([res.status, res.body.stage], [202, 'VOICE']);
     await runUntil(ctx);
-    assert.equal(calls.length, 3 + 5, 'the two cached scenes are not synthesized again');
+    assert.equal(calls.length, 2, 'the narration is requested once more');
     assert.deepEqual(await countJobs(gen.videoId), { RESEARCH: 1, SCRIPT: 1, SCENES: 1, ASSETS: 1, VOICE: 2, SUBTITLES: 1, RENDER: 1 });
     assert.equal((await prisma.project.findUniqueOrThrow({ where: { id: gen.projectId } })).status, 'COMPLETED');
   });

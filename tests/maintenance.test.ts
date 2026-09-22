@@ -71,7 +71,7 @@ describe('checkData', () => {
     let report = await checkData(storage);
     assert.deepEqual(report.issues, []);
     assert.equal(report.counts.videos, 1);
-    assert.equal(report.counts.readyAssets, 14, '7 images + 7 narrations');
+    assert.equal(report.counts.readyAssets, 15, '7 images + 7 scene audios + the narration');
     assert.equal(report.counts.dirs, 3, 'assets, audio and renders of one video');
 
     const audio = await prisma.asset.findFirstOrThrow({ where: { type: 'audio', status: 'READY' } });

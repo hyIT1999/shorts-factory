@@ -29,7 +29,7 @@ const dataDir = makeTempDir('sf-workers-data-');
 function startWorker(): WorkerProcess {
   const child = spawn(process.execPath, ['--import', 'tsx', 'workers/worker.ts'], {
     // A short idle poll makes both workers compete for every job; mock AI avoids real API calls.
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, WORKER_POLL_INTERVAL_MS: '20', AI_PROVIDER: 'mock', VOICE_PROVIDER: 'silent', VOICE_REQUEST_DELAY_MS: '0', RENDER_PROVIDER: 'mock', DATA_DIR: dataDir },
+    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, WORKER_POLL_INTERVAL_MS: '20', AI_PROVIDER: 'mock', ASSET_PROVIDER: 'placeholder', VOICE_PROVIDER: 'silent', VOICE_REQUEST_DELAY_MS: '0', RENDER_PROVIDER: 'mock', DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const output: string[] = [];

@@ -1,7 +1,8 @@
 /**
  * VOICE stage: one narration WAV per scene via the configured VoiceProvider
- * (Gemini TTS by default), then scene timings and Video.duration are rebuilt
- * from the real audio. See lib/voice/service.ts.
+ * (Gemini TTS by default) — by default one TTS request for the whole video,
+ * cut at the pauses (VOICE_MODE=narration) — then scene timings and
+ * Video.duration are rebuilt from the real audio. See lib/voice/service.ts.
  */
 import type { JobHandler } from '../lib/jobs/types.js';
 import { synthesizeVideoVoice } from '../lib/voice/service.js';

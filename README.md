@@ -241,15 +241,29 @@ worker handler → AIClient (Zod validation) → AIProvider → GeminiProvider �
 - One WAV (PCM 16-bit mono) per scene: `data/audio/<projectId>/<videoId>/scene-NN.wav`, stored as an
   `Asset` with `type = "audio"` and linked via `Scene.voiceAssetId`. The text comes from `Scene.text`
   (ordered by `index`), the language from the script (fallback: Channel DNA), the tone from Channel DNA.
+- `VOICE_MODE=narration` (default): **one TTS request per video**. The scene texts are sent as
+  paragraphs with an instruction to pause between them; the returned audio is kept as
+  `data/audio/<projectId>/<videoId>/narration.wav` (`Asset` with `type = "narration"`, linked to no
+  scene) and cut into the per-scene WAVs by `lib/voice/split.ts`: pauses are found from the audio
+  energy and the N−1 cuts are chosen so that each scene's length matches its text. A cut sits near
+  the end of a pause (the pause stays at the tail of the scene that ends; the next scene starts about
+  80 ms before its first word); pauses longer than 500 ms are shortened. When no pause is found
+  where one is needed, the cut lands at the quietest spot near the text estimate and the boundary is
+  reported as `estimated` (a warning in the worker log and in the job result; the job still succeeds).
+  The Gemini free tier allows ~10 TTS requests per day per model, so this mode is what makes
+  more than one video a day possible. `VOICE_MODE=scene` is the old behaviour: one request per scene,
+  sequentially, with `VOICE_REQUEST_DELAY_MS` between requests.
 - After all scenes are voiced, `Scene.duration/startTime/endTime` and `Video.duration` are rebuilt
   from the real audio lengths (the SCENES timings were only estimates).
 - Vietnamese narration without diacritics is rejected (`TEXT_NOT_VIETNAMESE`); VOICE never edits text.
-- Any provider error fails the job (no silent fallback); transient ones (429, 5xx, timeouts) are
-  retried with the same backoff as the AI providers first. Scenes already voiced stay `READY`
-  and are reused on the next run (`POST /api/videos/:id/rerun` with `{"stage": "VOICE"}`): a scene
-  is only re-synthesized when its cache key (provider, model, voice, language, speed, tone, text)
-  changes or its file is missing/corrupt.
-- Requests are sequential; `VOICE_REQUEST_DELAY_MS` adds a pause between them.
+- Any provider error fails the job (no silent fallback); transient ones (429 per-minute, 5xx,
+  timeouts) are retried with the same backoff as the AI providers first; a 429 for a **per-day** quota
+  is not retried (it only resets the next day). Audio already produced stays `READY` and is reused on
+  the next run (`POST /api/videos/:id/rerun` with `{"stage": "VOICE"}`): in narration mode the
+  narration is re-synthesized only when its cache key (provider, model, voice, language, speed, tone,
+  all scene texts) changes or its file is missing/corrupt, and a scene is re-cut only when its file
+  is missing/corrupt or the narration changed; in scene mode the same applies per scene.
+- `VOICE_TIMEOUT_MS` (default 300000) bounds one TTS request; a whole narration takes longer than a scene.
 
 ### Subtitles
 

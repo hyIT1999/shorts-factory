@@ -359,9 +359,12 @@ describe('worker processes', () => {
     DATA_DIR: dataDir,
     WORKER_POLL_INTERVAL_MS: '20',
     AI_PROVIDER: 'mock',
+    // Never the developer's real providers from .env (a Pexels key would make ASSETS call the network).
+    ASSET_PROVIDER: 'placeholder',
     VOICE_PROVIDER: 'silent',
     RENDER_PROVIDER: 'mock',
-    // Six pauses between the seven scenes keep VOICE running for a few seconds: the window for the kill.
+    // Scene mode with six pauses between the seven scenes keeps VOICE running for a few seconds: the window for the kill.
+    VOICE_MODE: 'scene',
     VOICE_REQUEST_DELAY_MS: '1500',
     JOB_HEARTBEAT_MS: '1000',
     JOB_STALE_MS: '2000',

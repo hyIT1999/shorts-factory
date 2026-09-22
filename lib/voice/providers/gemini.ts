@@ -53,8 +53,12 @@ function safeDetail(message: string): string {
   return message.replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]').slice(0, MAX_DETAIL_LENGTH);
 }
 
-/** Natural-language delivery hint (Gemini TTS follows instructions like "Say cheerfully: …"). */
-function deliveryPrompt(request: VoiceRequest): string {
+/**
+ * Natural-language delivery hint (Gemini TTS follows instructions like "Say
+ * cheerfully: …"). A narration request always carries an instruction: the
+ * pause between paragraphs is what the splitter later looks for.
+ */
+export function deliveryPrompt(request: VoiceRequest): string {
   const hints: string[] = [];
   if (request.style) {
     hints.push(`in a ${request.style.toLowerCase()} tone`);
@@ -64,7 +68,15 @@ function deliveryPrompt(request: VoiceRequest): string {
   } else if (request.speed > 1.1) {
     hints.push('at a fast pace');
   }
+  if (request.paragraphs) {
+    hints.push('pausing for about one second between paragraphs');
+  }
   return hints.length > 0 ? `Read aloud ${hints.join(', ')}: ${request.text}` : request.text;
+}
+
+/** "scene 3" or "narration (8 scenes)" for logs and error messages. */
+function requestLabel(request: VoiceRequest): string {
+  return request.paragraphs ? `narration (${request.paragraphs.length} scenes)` : `scene ${request.sceneIndex + 1}`;
 }
 
 /** "audio/l16; rate=24000; channels=1" → { sampleRate: 24000, channels: 1 }. */
@@ -110,7 +122,7 @@ export class GeminiTtsProvider implements VoiceProvider {
       ...(this.sleep ? { sleep: this.sleep } : {}),
       onRetry: ({ attempt, attempts, delayMs, error }) =>
         this.log(
-          `Gemini TTS scene ${request.sceneIndex + 1}: ${error instanceof Error ? error.message : String(error)}; ` +
+          `Gemini TTS ${requestLabel(request)}: ${error instanceof Error ? error.message : String(error)}; ` +
             `retry ${attempt} of ${attempts - 1} in ${Math.round(delayMs / 1000)} s`,
         ),
     });
@@ -168,13 +180,56 @@ function googleRetryDelay(payload: unknown): number | undefined {
   return undefined;
 }
 
+interface QuotaViolation {
+  quotaId: string;
+  quotaValue: string | undefined;
+}
+
+/** Google's QuotaFailure detail: which quota (per minute, per day…) was exceeded. */
+function quotaViolations(payload: unknown): QuotaViolation[] {
+  const error = isObject(payload) && isObject(payload['error']) ? payload['error'] : undefined;
+  const details = Array.isArray(error?.['details']) ? error['details'] : [];
+  const violations: QuotaViolation[] = [];
+  for (const detail of details) {
+    const list = isObject(detail) && Array.isArray(detail['violations']) ? detail['violations'] : [];
+    for (const violation of list) {
+      if (isObject(violation) && typeof violation['quotaId'] === 'string') {
+        violations.push({
+          quotaId: violation['quotaId'],
+          quotaValue: typeof violation['quotaValue'] === 'string' ? violation['quotaValue'] : undefined,
+        });
+      }
+    }
+  }
+  return violations;
+}
+
+/**
+ * 429 with a per-day quota is not worth retrying: it only resets at midnight
+ * Pacific time and every retry would cost nothing but wait. Per-minute limits
+ * and 429s without details stay retryable.
+ */
+function rateLimitError(payload: unknown, retryAfterMs: number | undefined): VoiceError {
+  const violations = quotaViolations(payload);
+  const daily = violations.find((v) => /perday/i.test(v.quotaId));
+  if (daily) {
+    const limit = daily.quotaValue ? `, limit ${daily.quotaValue}` : '';
+    return new VoiceError('VOICE_RATE_LIMIT', safeDetail(`Gemini TTS daily quota exhausted (${daily.quotaId}${limit}) (HTTP 429)`), {
+      retryable: false,
+      retryAfterMs,
+    });
+  }
+  const which = violations[0] ? ` (${safeDetail(violations[0].quotaId)})` : '';
+  return new VoiceError('VOICE_RATE_LIMIT', `Gemini TTS rate limit or quota exceeded${which} (HTTP 429)`, { retryable: true, retryAfterMs });
+}
+
 function httpError(status: number, payload: unknown, headers?: Headers): VoiceError {
   const retryAfterMs = parseRetryAfterHeader(headers?.get('retry-after')) ?? googleRetryDelay(payload);
   if (status === 401 || status === 403) {
     return new VoiceError('VOICE_AUTH', `Gemini TTS rejected the credentials (HTTP ${status}); check GEMINI_API_KEY`);
   }
   if (status === 429) {
-    return new VoiceError('VOICE_RATE_LIMIT', 'Gemini TTS rate limit or quota exceeded (HTTP 429)', { retryable: true, retryAfterMs });
+    return rateLimitError(payload, retryAfterMs);
   }
   const error = isObject(payload) && isObject(payload['error']) ? payload['error'] : undefined;
   const message = typeof error?.['message'] === 'string' ? error['message'] : '';
@@ -192,7 +247,7 @@ function extractAudio(payload: unknown, request: VoiceRequest): VoiceResult {
   }
   const feedback = payload['promptFeedback'];
   if (isObject(feedback) && typeof feedback['blockReason'] === 'string') {
-    throw new VoiceError('VOICE_API_ERROR', `Gemini TTS blocked scene ${request.sceneIndex + 1} (${feedback['blockReason']})`);
+    throw new VoiceError('VOICE_API_ERROR', `Gemini TTS blocked ${requestLabel(request)} (${feedback['blockReason']})`);
   }
   const candidates = payload['candidates'];
   const candidate = Array.isArray(candidates) ? candidates[0] : undefined;
@@ -201,7 +256,7 @@ function extractAudio(payload: unknown, request: VoiceRequest): VoiceResult {
   }
   const finishReason = typeof candidate['finishReason'] === 'string' ? candidate['finishReason'] : 'STOP';
   if (finishReason !== 'STOP') {
-    throw new VoiceError('INVALID_AUDIO', `Gemini TTS finished with "${finishReason}" for scene ${request.sceneIndex + 1}`);
+    throw new VoiceError('INVALID_AUDIO', `Gemini TTS finished with "${finishReason}" for ${requestLabel(request)}`);
   }
 
   const content = candidate['content'];

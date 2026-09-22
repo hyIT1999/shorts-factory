@@ -15,6 +15,11 @@ export interface WavInfo extends WavFormat {
   durationSec: number;
 }
 
+/** WavInfo plus where the PCM payload starts inside the file. */
+export interface WavData extends WavInfo {
+  dataOffset: number;
+}
+
 const HEADER_BYTES = 44;
 const PCM_FORMAT = 1;
 
@@ -45,6 +50,12 @@ function invalid(message: string): VoiceError {
 
 /** Validates a PCM 16-bit WAV file and returns its format and real duration. */
 export function parseWav(input: Uint8Array): WavInfo {
+  const data = parseWavData(input);
+  return { sampleRate: data.sampleRate, channels: data.channels, bitsPerSample: data.bitsPerSample, dataBytes: data.dataBytes, durationSec: data.durationSec };
+}
+
+/** parseWav plus the byte offset of the PCM payload (for reading or cutting samples). */
+export function parseWavData(input: Uint8Array): WavData {
   const buf = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   if (buf.length < HEADER_BYTES || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
     throw invalid('missing RIFF/WAVE header');
@@ -52,6 +63,7 @@ export function parseWav(input: Uint8Array): WavInfo {
 
   let format: WavFormat | undefined;
   let dataBytes: number | undefined;
+  let dataOffset = 0;
   let offset = 12;
   while (offset + 8 <= buf.length) {
     const id = buf.toString('ascii', offset, offset + 4);
@@ -70,6 +82,7 @@ export function parseWav(input: Uint8Array): WavInfo {
         throw invalid('data chunk is truncated');
       }
       dataBytes = size;
+      dataOffset = body;
       break;
     }
     offset = body + size + (size % 2); // chunks are word-aligned
@@ -91,5 +104,27 @@ export function parseWav(input: Uint8Array): WavInfo {
   if (dataBytes % blockAlign !== 0) {
     throw invalid('data size is not a whole number of samples');
   }
-  return { ...format, dataBytes, durationSec: dataBytes / blockAlign / format.sampleRate };
+  return { ...format, dataBytes, dataOffset, durationSec: dataBytes / blockAlign / format.sampleRate };
+}
+
+/**
+ * Interleaved 16-bit samples of a WAV file, copied into their own buffer
+ * (file bytes may sit at an odd offset inside a pooled Buffer).
+ */
+export function wavSamples(input: Uint8Array): { format: WavFormat; samples: Int16Array } {
+  const info = parseWavData(input);
+  const bytes = new Uint8Array(info.dataBytes);
+  bytes.set(input.subarray(info.dataOffset, info.dataOffset + info.dataBytes));
+  return {
+    format: { sampleRate: info.sampleRate, channels: info.channels, bitsPerSample: info.bitsPerSample },
+    samples: new Int16Array(bytes.buffer, 0, info.dataBytes / 2),
+  };
+}
+
+/** Wraps a range of interleaved 16-bit samples (frame = one sample per channel) back into a WAV file. */
+export function sliceWav(samples: Int16Array, format: WavFormat, startFrame: number, endFrame: number): Buffer {
+  const start = startFrame * format.channels;
+  const end = endFrame * format.channels;
+  const pcm = new Uint8Array(samples.buffer, samples.byteOffset + start * 2, (end - start) * 2);
+  return encodeWav(pcm, format);
 }

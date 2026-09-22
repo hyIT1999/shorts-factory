@@ -4,16 +4,16 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { LocalAssetStorage } from '../lib/assets/storage.js';
-import { voiceCacheKey, type VoiceCacheInput } from '../lib/voice/cache.js';
+import { narrationCacheKey, sceneSplitKey, voiceCacheKey, type VoiceCacheInput } from '../lib/voice/cache.js';
 import { VoiceError } from '../lib/voice/errors.js';
 import { createVoiceProviderFromEnv, createVoiceServicesFromEnv } from '../lib/voice/index.js';
-import { GeminiTtsProvider, type FetchFn } from '../lib/voice/providers/gemini.js';
+import { GeminiTtsProvider, deliveryPrompt, type FetchFn } from '../lib/voice/providers/gemini.js';
 import { MockVoiceProvider } from '../lib/voice/providers/mock.js';
 import { SilentVoiceProvider, silenceWav, silentDurationSec } from '../lib/voice/providers/silent.js';
 import { assertPlausibleDuration } from '../lib/voice/service.js';
 import { assertVietnamese, normalizeLanguage, normalizeNarration, vietnameseMarkedRatio } from '../lib/voice/text.js';
 import type { VoiceRequest } from '../lib/voice/types.js';
-import { encodeWav, parseWav } from '../lib/voice/wav.js';
+import { encodeWav, parseWav, parseWavData, sliceWav, wavSamples } from '../lib/voice/wav.js';
 
 async function expectVoiceError(action: Promise<unknown> | (() => unknown), code: VoiceError['code']): Promise<VoiceError> {
   try {
@@ -69,6 +69,25 @@ describe('WAV', () => {
     for (const bad of [Buffer.alloc(10), notRiff, notPcm, eightBit, truncated, good.subarray(0, 36), odd, Buffer.from('not audio at all, just text')]) {
       await expectVoiceError(() => parseWav(bad), 'INVALID_AUDIO');
     }
+  });
+
+  test('parseWavData locates the PCM payload; wavSamples and sliceWav round-trip samples', () => {
+    const samples = Int16Array.from({ length: 480 }, (_, i) => (i % 2 === 0 ? 1000 : -1000));
+    const wav = encodeWav(new Uint8Array(samples.buffer));
+    assert.equal(parseWavData(wav).dataOffset, 44);
+    // Behind an unknown chunk the offset moves along.
+    const list = Buffer.concat([Buffer.from('LIST'), Buffer.from([4, 0, 0, 0]), Buffer.from('INFO')]);
+    assert.equal(parseWavData(Buffer.concat([wav.subarray(0, 36), list, wav.subarray(36)])).dataOffset, 56);
+
+    // Odd offset inside a larger buffer must still decode (no unaligned Int16Array view).
+    const shifted = Buffer.concat([Buffer.from([0]), wav]).subarray(1);
+    const decoded = wavSamples(shifted);
+    assert.deepEqual(decoded.format, { sampleRate: 24_000, channels: 1, bitsPerSample: 16 });
+    assert.deepEqual([...decoded.samples.subarray(0, 4)], [1000, -1000, 1000, -1000]);
+
+    const slice = sliceWav(decoded.samples, decoded.format, 24, 72);
+    assert.equal(parseWav(slice).durationSec, 0.002);
+    assert.deepEqual([...wavSamples(slice).samples.subarray(0, 2)], [1000, -1000]);
   });
 });
 
@@ -150,6 +169,33 @@ describe('silent and mock providers', () => {
     await expectVoiceError(provider.synthesize(request({ sceneIndex: 2 })), 'VOICE_RATE_LIMIT');
     assert.equal(provider.calls.length, 2);
   });
+
+  test('a narration request is built paragraph by paragraph with exact boundaries', async () => {
+    const paragraphs = ['Một hai ba bốn năm sáu bảy tám.', 'Chín mười.', 'Mười một mười hai mười ba.'];
+    const narration = request({ text: paragraphs.join('\n\n'), paragraphs });
+    const silent = await new SilentVoiceProvider().synthesize(narration);
+    const expected = paragraphs.map((p) => silentDurationSec(p));
+    assert.deepEqual(silent.boundariesSec, [expected[0], Math.round(((expected[0] ?? 0) + (expected[1] ?? 0)) * 10) / 10]);
+    assert.equal(parseWav(silent.audio).durationSec, Math.round(expected.reduce((a, b) => a + b, 0) * 10) / 10);
+
+    // The mock asks durationSec per paragraph (as a scene request) and records the narration call once.
+    const seen: VoiceRequest[] = [];
+    const mock = new MockVoiceProvider({
+      durationSec: (r) => {
+        seen.push(r);
+        return 1 + r.sceneIndex;
+      },
+    });
+    const result = await mock.synthesize(narration);
+    assert.equal(mock.calls.length, 1);
+    assert.deepEqual(seen.map((r) => [r.sceneIndex, r.text, r.paragraphs]), paragraphs.map((p, i) => [i, p, undefined]));
+    assert.deepEqual(result.boundariesSec, [1, 3]);
+    assert.equal(parseWav(result.audio).durationSec, 6);
+
+    // Raw audio comes without boundaries (detection path).
+    const raw = await new MockVoiceProvider({ audio: () => silenceWav(2) }).synthesize(narration);
+    assert.equal(raw.boundariesSec, null);
+  });
 });
 
 describe('provider factory', () => {
@@ -172,9 +218,32 @@ describe('provider factory', () => {
     assert.equal(services.voice, 'Charon');
     assert.equal(services.requestDelayMs, 500);
     assert.equal(services.speed, 1);
+    assert.equal(services.mode, 'narration', 'narration is the default mode');
     assert.equal(services.storage, storage, 'shares the asset storage instance');
     assert.equal(createVoiceServicesFromEnv(storage, { VOICE_PROVIDER: 'silent' }).voice, 'default');
+    assert.equal(createVoiceServicesFromEnv(storage, { VOICE_PROVIDER: 'silent', VOICE_MODE: ' Scene ' }).mode, 'scene');
     await expectVoiceError(() => createVoiceServicesFromEnv(storage, { VOICE_REQUEST_DELAY_MS: '-1' }), 'VOICE_CONFIG');
+    await expectVoiceError(() => createVoiceServicesFromEnv(storage, { VOICE_MODE: 'paragraph' }), 'VOICE_CONFIG');
+    await expectVoiceError(() => createVoiceServicesFromEnv(storage, { VOICE_TIMEOUT_MS: 'soon' }), 'VOICE_CONFIG');
+  });
+});
+
+describe('cache keys', () => {
+  test('narration key changes with any scene text; scene split key with the narration audio', () => {
+    const base = { provider: 'gemini', model: 'm', voice: 'v', language: 'vi', speed: 1, style: 's' };
+    const key = narrationCacheKey({ ...base, texts: ['a', 'b'] });
+    assert.match(key, /^[0-9a-f]{64}$/);
+    assert.equal(narrationCacheKey({ ...base, texts: ['a', 'b'] }), key);
+    assert.notEqual(narrationCacheKey({ ...base, texts: ['a', 'c'] }), key);
+    assert.notEqual(narrationCacheKey({ ...base, texts: ['a', 'b', 'c'] }), key);
+    assert.notEqual(narrationCacheKey({ ...base, voice: 'w', texts: ['a', 'b'] }), key);
+    assert.notEqual(voiceCacheKey({ ...base, text: 'a\n\nb' }), key, 'never collides with a scene key');
+
+    const split = sceneSplitKey('sha-1', 0, 3);
+    assert.equal(sceneSplitKey('sha-1', 0, 3), split);
+    assert.notEqual(sceneSplitKey('sha-2', 0, 3), split);
+    assert.notEqual(sceneSplitKey('sha-1', 1, 3), split);
+    assert.notEqual(sceneSplitKey('sha-1', 0, 4), split);
   });
 });
 
@@ -236,6 +305,40 @@ describe('GeminiTtsProvider (fake fetch)', () => {
     await provider(fetchFn).synthesize(request({ style: undefined }));
     const body = JSON.parse(String(fetchFn.calls[0]?.init.body)) as { contents: { parts: { text: string }[] }[] };
     assert.equal(body.contents[0]?.parts[0]?.text, VI_TEXT);
+  });
+
+  test('a narration request asks for pauses between paragraphs and sends them joined by blank lines', () => {
+    const paragraphs = ['Đoạn một.', 'Đoạn hai.'];
+    const prompt = deliveryPrompt(request({ text: paragraphs.join('\n\n'), paragraphs }));
+    assert.equal(prompt, 'Read aloud in a curious / mysterious tone, pausing for about one second between paragraphs: Đoạn một.\n\nĐoạn hai.');
+    // Even without a style the instruction is present.
+    assert.match(deliveryPrompt(request({ style: undefined, text: 'x\n\ny', paragraphs: ['x', 'y'] })), /^Read aloud pausing for about one second between paragraphs: x\n\ny$/);
+  });
+
+  test('a per-day quota 429 is not retryable and names the quota; per-minute stays retryable', async () => {
+    const quota = (quotaId: string) =>
+      json(
+        {
+          error: {
+            message: 'You exceeded your current quota',
+            details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId, quotaValue: '10' }] }],
+          },
+        },
+        429,
+      );
+    const daily = await expectVoiceError(
+      provider(fakeFetch(() => quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier'))).synthesize(request()),
+      'VOICE_RATE_LIMIT',
+    );
+    assert.equal(daily.retryable, false);
+    assert.match(daily.message, /daily quota exhausted \(GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit 10\)/);
+
+    const minute = await expectVoiceError(
+      provider(fakeFetch(() => quota('GenerateRequestsPerMinutePerProjectPerModel-FreeTier'))).synthesize(request()),
+      'VOICE_RATE_LIMIT',
+    );
+    assert.equal(minute.retryable, true);
+    assert.match(minute.message, /PerMinute/);
   });
 
   test('uses the sample rate from the returned mime type', async () => {

@@ -47,7 +47,9 @@ Các giá trị bắt buộc trong `.env`:
 | `FFMPEG_PATH` / `FFPROBE_PATH` | để trống nếu dùng ffmpeg trên PATH |
 | `AI_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL` | provider và model AI |
 | `VOICE_PROVIDER=gemini`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | TTS |
-| `VOICE_REQUEST_DELAY_MS=2000` | tránh 429 ở free tier |
+| `VOICE_MODE` | `narration` (mặc định: 1 request TTS/video, cắt theo khoảng lặng) hoặc `scene` (1 request/scene) |
+| `VOICE_TIMEOUT_MS` | giới hạn 1 request TTS (mặc định 300000) |
+| `VOICE_REQUEST_DELAY_MS=2000` | chỉ dùng ở `VOICE_MODE=scene`, tránh 429 ở free tier |
 | `ASSET_PROVIDER`, `PEXELS_API_KEY` | `pexels` + key từ pexels.com/api để dùng ảnh stock (free: 200 request/giờ ≈ 20 video/giờ); để `placeholder` nếu chưa có key |
 | `ASSET_FALLBACK` | `placeholder` (mặc định: scene không có ảnh stock dùng ảnh nền sinh sẵn) hoặc `fail` (job FAILED, Re-run ASSETS sau) |
 | `API_TOKEN` | tuỳ chọn (≥ 16 ký tự); nếu đặt, nhập vào Settings → API token trên UI |
@@ -104,10 +106,13 @@ Số đo tham chiếu từ máy dev (Xeon 2,5 GHz, 5 vCPU, FFmpeg 9): video 24,3
 15 fps với motion, đặt `RENDER_MOTION_SCALE=1` (nhanh ~2×) và kiểm tra CPU steal (`top`, cột `st`);
 với video dài (≥ 120 s) đặt `RENDER_TIMEOUT_MS=900000`.
 
-Trên UI: tạo 1 project, Generate, chờ COMPLETED, xem video trong khung 9:16 và tải MP4. Nếu VOICE
-báo 429 nhiều lần, tăng `VOICE_REQUEST_DELAY_MS`; job tự retry 3 lần rồi mới FAILED, sau đó bấm
-Re-run VOICE (các scene đã có audio được dùng lại). Trước lô lớn đầu tiên, chạy thử 10 video thật với
-Gemini TTS và ghi lại tỷ lệ 429, thời gian VOICE và dung lượng; đó là căn cứ để quyết định GO.
+Trên UI: tạo 1 project, Generate, chờ COMPLETED, xem video trong khung 9:16 và tải MP4. VOICE mặc định
+chạy `VOICE_MODE=narration`: **1 request TTS cho cả video** (gói free Gemini chỉ cho ~10 request/ngày/model,
+tức ~10 video/ngày). Nếu VOICE báo 429 "daily quota exhausted" thì quota ngày đã hết: job FAILED ngay
+(không retry), hôm sau bấm Re-run VOICE; 429 theo phút thì job tự retry 3 lần. Sau khi VOICE xong, log
+worker ghi số ranh giới `detected/relaxed/estimated`; nếu thấy `estimated` nhiều, nghe lại các file
+`scene-NN.wav` quanh điểm cắt. Trước lô lớn đầu tiên, chạy thử 10 video thật với Gemini TTS và ghi lại
+tỷ lệ 429, chất lượng điểm cắt, thời gian VOICE và dung lượng; đó là căn cứ để quyết định GO.
 
 Nếu dùng `ASSET_PROVIDER=pexels`: mỗi scene là 1 request tìm kiếm, nên 10 video ≈ 70–100 request
 (trong giới hạn 200/giờ), còn lô 100 video cần chia thành nhiều đợt cách nhau ≥ 1 giờ. Khi hết quota,

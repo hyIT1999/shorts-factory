@@ -55,9 +55,10 @@ async function seedVideo(texts: string[], scriptLanguage: string | null = 'vi') 
   return gen;
 }
 
+/** Scene mode (one TTS request per scene); narration mode has its own suite in voice-narration.test.ts. */
 function mockServices(options: MockVoiceOptions = {}) {
   const provider = new MockVoiceProvider(options);
-  return { provider, services: createTestVoiceServices(provider) };
+  return { provider, services: createTestVoiceServices(provider, undefined, { mode: 'scene' }) };
 }
 
 async function voicedScenes(videoId: string) {
@@ -269,7 +270,7 @@ describe('VOICE stage in the pipeline', () => {
     return {
       ai: new AIClient(new MockAIProvider()),
       assets,
-      voice: createTestVoiceServices(voiceProvider, assets.storage),
+      voice: createTestVoiceServices(voiceProvider, assets.storage, { mode: 'scene' }),
       render: createTestRenderServices(assets.storage),
       voiceProvider,
     };

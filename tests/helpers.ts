@@ -80,12 +80,13 @@ export function createTestRenderServices(storage: LocalAssetStorage, overrides: 
   };
 }
 
-/** Voice services (silent provider by default) writing into a temporary storage root. */
+/** Voice services (silent provider, narration mode by default) writing into a temporary storage root. */
 export function createTestVoiceServices(
   provider: VoiceProvider = new SilentVoiceProvider(),
   storage: LocalAssetStorage = new LocalAssetStorage(makeTempDir('sf-voice-')),
+  overrides: Partial<VoiceServices> = {},
 ): VoiceServices {
-  return { provider, voice: 'test-voice', speed: 1, requestDelayMs: 0, storage };
+  return { provider, voice: 'test-voice', speed: 1, mode: 'narration', requestDelayMs: 0, storage, ...overrides };
 }
 
 export async function removeTestDb(): Promise<void> {

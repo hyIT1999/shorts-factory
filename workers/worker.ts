@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       `normalize: ${ctx.assets.normalizer?.name ?? 'off'}, fallback: ${ctx.assets.fallbackMode ?? 'placeholder'})`,
   );
   const voiceModel = ctx.voice.provider.model || 'model not set';
-  log(`Voice provider: ${ctx.voice.provider.name} (${voiceModel}, voice: ${ctx.voice.voice || 'not set'})`);
+  log(`Voice provider: ${ctx.voice.provider.name} (${voiceModel}, voice: ${ctx.voice.voice || 'not set'}, mode: ${ctx.voice.mode})`);
   const motion = ctx.render.motion;
   const motionSummary = motion && motion.mode !== 'off' ? `${motion.mode} ×${motion.scale}${motion.preset === 'auto' ? '' : ` ${motion.preset}`}` : 'off';
   log(
